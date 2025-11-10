@@ -5,6 +5,7 @@ mod errors;
 mod instructions;
 mod state;
 mod utils;
+mod constants;
 
 declare_id!("V1fxrKvUB7ebNyhe8R7tYiPLYSNsicWwowyY6pbYrxM");
 
@@ -136,5 +137,25 @@ pub mod tdf_program {
         leverage: u8,
     ) -> Result<()> {
         instructions::open_position(ctx, position_seq, direction, size, leverage)
+    }
+
+    pub fn update_participant<'info>(
+        ctx: Context<'_, '_, 'info, 'info, UpdateParticipant<'info>>,
+        league: Pubkey,
+        user: Pubkey,
+    ) -> Result<()> {
+        instructions::update_participant(ctx, league, user)
+    }
+
+    pub fn update_and_commit_participant<'info>(
+        ctx: Context<'_, '_, 'info, 'info, UpdateParticipant<'info>>,
+        league: Pubkey,
+        user: Pubkey,
+    ) -> Result<()> {
+        instructions::update_and_commit_participant(ctx, league, user)
+    }
+
+    pub fn update_leaderboard_with_participant(ctx: Context<UpdateLeaderboardWithParticipant>) -> Result<()> {
+        instructions::update_leaderboard_with_participant(ctx)
     }
 }

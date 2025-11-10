@@ -8,8 +8,7 @@ use crate::state::{
     Direction, League, LeagueStatus, Market, Participant, Position, PARTICIPANT_SEED, POSITION_SEED, POSITION_SPACE
 };
 use crate::utils::{get_price_and_exponent_from_pyth, calculate_notional};
-
-const QUOTE_DECIMALS: u8 = 6; // USD decimals for paper dollars
+use crate::constants::QUOTE_DECIMALS;
 
 /// Initialize Position just for delegation
 pub fn init_unopened_position(
@@ -85,7 +84,7 @@ pub fn open_position(
     position.direction = direction;
     position.entry_size = size;
     position.size = size;
-    position.entry_price = current_price;
+    position.entry_price = current_price_in_decimal;
     position.notional = notional;
     position.leverage = leverage;
     position.opened_at = Clock::get()?.unix_timestamp;

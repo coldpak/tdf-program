@@ -30,4 +30,8 @@ pub enum ErrorCode {
     InsufficientBalance,
     #[msg("Position already opened")]
     PositionAlreadyOpened,
+    #[msg("Invalid update participant remaining accounts")]
+    InvalidUpdateParticipantRemainingAccounts,
+    #[msg("Position mismatch")]
+    PositionMismatch,
 }
