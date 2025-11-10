@@ -127,4 +127,14 @@ pub mod tdf_program {
     ) -> Result<()> {
         instructions::delegate_unopened_position(ctx, participant, position_seq)
     }
+
+    pub fn open_position(
+        ctx: Context<OpenPosition>,
+        position_seq: u64,
+        direction: crate::state::Direction,
+        size: i64,
+        leverage: u8,
+    ) -> Result<()> {
+        instructions::open_position(ctx, position_seq, direction, size, leverage)
+    }
 }

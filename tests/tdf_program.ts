@@ -30,6 +30,7 @@ const PYTH_SEED = [
   Buffer.from("pyth-lazer"),
   Buffer.from(PYTH_LAZER_ID.toString()),
 ];
+const SOL_DECIMALS = 6;
 const PYTH_PROGRAM_ID = "PriCems5tHihc6UDXDjzjeawomAwBduWMGAi8ZUjppd";
 const [price_feed_pda] = anchor.web3.PublicKey.findProgramAddressSync(
   PYTH_SEED,
@@ -105,6 +106,19 @@ describe("tdf-program", () => {
     ],
     program.programId
   );
+  const currentPositionSeq = 1; // TODO: get from participant
+  // Convert to little-endian bytes (u64 = 8 bytes)
+  const seqBytes = Buffer.allocUnsafe(8);
+  seqBytes.writeBigUInt64LE(BigInt(currentPositionSeq.toString()), 0);
+  const [positionPda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("position"),
+      leaguePda.toBuffer(),
+      anchor.Wallet.local().publicKey.toBuffer(),
+      seqBytes,
+    ],
+    program.programId
+  );
 
   // Listup known pdas
   console.log("Global Config PDA: ", global_config_pda.toBase58());
@@ -115,6 +129,7 @@ describe("tdf-program", () => {
   console.log("Leaderboard PDA: ", leaderboardPda.toBase58());
   console.log("Reward Vault PDA: ", rewardVaultPda.toBase58());
   console.log("Participant PDA: ", participantPda.toBase58());
+  console.log("Position PDA: ", positionPda.toBase58());
 
   it("Initialize GlobalConfig with 10% fee, only if it doesn't exist", async () => {
     // Check if GlobalConfig exists
@@ -169,7 +184,7 @@ describe("tdf-program", () => {
         .createMarket(
           // @ts-ignore
           Buffer.from("SOLUSD"),
-          -PYTH_EXPONENT,
+          SOL_DECIMALS,
           20
         )
         .accounts({
@@ -193,31 +208,31 @@ describe("tdf-program", () => {
     }
   });
 
-  // it("Update Market", async () => {
-  //   const tx = await program.methods
-  //     .updateMarket(
-  //       // @ts-ignore
-  //       Buffer.from("SOLUSD"),
-  //       -PYTH_EXPONENT,
-  //       true,
-  //       20
-  //     )
-  //     .accounts({
-  //       // @ts-ignore
-  //       market: marketPda,
-  //       priceFeed: price_feed_pda,
-  //       globalConfig: global_config_pda,
-  //       admin: anchor.Wallet.local().publicKey,
-  //       systemProgram: anchor.web3.SystemProgram.programId,
-  //     })
-  //     .transaction();
+  it("Update Market", async () => {
+    const tx = await program.methods
+      .updateMarket(
+        // @ts-ignore
+        Buffer.from("SOLUSD"),
+        SOL_DECIMALS,
+        true,
+        20
+      )
+      .accounts({
+        // @ts-ignore
+        market: marketPda,
+        priceFeed: price_feed_pda,
+        globalConfig: global_config_pda,
+        admin: anchor.Wallet.local().publicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .transaction();
 
-  //   const signature = await sendMagicTransaction(routerConnection, tx, [
-  //     anchor.Wallet.local().payer,
-  //   ]);
+    const signature = await sendMagicTransaction(routerConnection, tx, [
+      anchor.Wallet.local().payer,
+    ]);
 
-  //   console.log("✅ Updated Market! Signature:", signature);
-  // });
+    console.log("✅ Updated Market! Signature:", signature);
+  });
 
   it("Create Entry Token Mint", async () => {
     try {
@@ -413,22 +428,6 @@ describe("tdf-program", () => {
   });
 
   it("Init Unopened Position and Delegate", async () => {
-    const currentPositionSeq = 1; // TODO: get from participant
-    // Convert to little-endian bytes (u64 = 8 bytes)
-    const seqBytes = Buffer.allocUnsafe(8);
-    seqBytes.writeBigUInt64LE(BigInt(currentPositionSeq.toString()), 0);
-    const [positionPda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("position"),
-        leaguePda.toBuffer(),
-        anchor.Wallet.local().publicKey.toBuffer(),
-        seqBytes,
-      ],
-      program.programId
-    );
-
-    console.log("Position PDA: ", positionPda.toBase58());
-
     // Check if position exists
     const positionAccount = await program.account.position.fetchNullable(
       positionPda
@@ -467,30 +466,88 @@ describe("tdf-program", () => {
       await sleepWithAnimation(5);
     }
 
-    const delegateTx = await program.methods
-      .delegateUnopenedPosition(
-        participantPda,
-        new anchor.BN(currentPositionSeq)
-      )
-      .accounts({
-        user: anchor.Wallet.local().publicKey,
-        league: leaguePda,
-        position: positionPda,
-      })
-      .transaction();
+    const isPositionDelegated = await getDelegationStatus(
+      routerConnection,
+      positionPda
+    );
+    if (isPositionDelegated.isDelegated) {
+      console.log(
+        "ℹ️ Position already delegated, skipping delegate unopened position"
+      );
+    } else {
+      console.log("Delegating Unopened Position...");
 
-    const delegateSignature = await sendAndConfirmTransaction(
-      connection,
-      delegateTx,
-      [anchor.Wallet.local().payer]
+      const delegateTx = await program.methods
+        .delegateUnopenedPosition(
+          participantPda,
+          new anchor.BN(currentPositionSeq)
+        )
+        .accounts({
+          user: anchor.Wallet.local().publicKey,
+          league: leaguePda,
+          position: positionPda,
+        })
+        .transaction();
+
+      const delegateSignature = await sendAndConfirmTransaction(
+        connection,
+        delegateTx,
+        [anchor.Wallet.local().payer]
+      );
+
+      console.log(
+        "✅ Delegated Unopened Position! Signature:",
+        delegateSignature
+      );
+
+      await sleepWithAnimation(5);
+    }
+  });
+
+  it("Open Position", async () => {
+    const positionAccount = await mbConnection.getAccountInfo(positionPda);
+
+    // Check if position's openedAt is 0
+    const positionOffset = 187;
+
+    const dataView = new DataView(
+      positionAccount.data.buffer,
+      positionAccount.data.byteOffset,
+      positionAccount.data.length
     );
 
-    console.log(
-      "✅ Delegated Unopened Position! Signature:",
-      delegateSignature
-    );
+    const openedAt = dataView.getBigInt64(positionOffset, true);
 
-    await sleepWithAnimation(5);
+    console.log("Opened At: ", openedAt);
+    console.log("Position Account: ", positionAccount.data.toString("hex"));
+
+    if (openedAt > 0) {
+      console.log("ℹ️ Position already opened, skipping open position");
+    } else {
+      const tx = await program.methods
+        .openPosition(
+          new anchor.BN(currentPositionSeq),
+          { long: {} },
+          new anchor.BN(1000000), // 1 SOL
+          1
+        )
+        .accounts({
+          user: anchor.Wallet.local().publicKey,
+          // @ts-ignore
+          position: positionPda,
+          priceFeed: price_feed_pda,
+          league: leaguePda,
+          market: marketPda,
+          participant: participantPda,
+        })
+        .transaction();
+
+      const signature = await sendMagicTransaction(routerConnection, tx, [
+        anchor.Wallet.local().payer,
+      ]);
+
+      console.log("✅ Opened Position! Signature:", signature);
+    }
   });
 
   // it("Open Position", async () => {

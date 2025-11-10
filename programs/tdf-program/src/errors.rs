@@ -24,4 +24,10 @@ pub enum ErrorCode {
     OracleMismatch,
     #[msg("Invalid oracle price feed data")]
     InvalidOraclePriceFeed,
+    #[msg("Math overflow")]
+    MathOverflow,
+    #[msg("Insufficient balance")]
+    InsufficientBalance,
+    #[msg("Position already opened")]
+    PositionAlreadyOpened,
 }
