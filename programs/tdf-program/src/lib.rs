@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::anchor::ephemeral;
 
+mod constants;
 mod errors;
 mod instructions;
 mod state;
 mod utils;
-mod constants;
 
 declare_id!("V1fxrKvUB7ebNyhe8R7tYiPLYSNsicWwowyY6pbYrxM");
 
@@ -139,12 +139,33 @@ pub mod tdf_program {
         instructions::open_position(ctx, position_seq, direction, size, leverage)
     }
 
+    pub fn close_position(ctx: Context<ClosePosition>, position_seq: u64) -> Result<()> {
+        instructions::close_position(ctx, position_seq)
+    }
+
+    pub fn commit_position(
+        ctx: Context<CommitPosition>,
+        league: Pubkey,
+        user: Pubkey,
+        position_seq: u64,
+    ) -> Result<()> {
+        instructions::commit_position(ctx, league, user, position_seq)
+    }
+
     pub fn update_participant<'info>(
         ctx: Context<'_, '_, 'info, 'info, UpdateParticipant<'info>>,
         league: Pubkey,
         user: Pubkey,
     ) -> Result<()> {
         instructions::update_participant(ctx, league, user)
+    }
+
+    pub fn commit_participant(
+        ctx: Context<UpdateParticipant>,
+        league: Pubkey,
+        user: Pubkey,
+    ) -> Result<()> {
+        instructions::commit_participant(ctx, league, user)
     }
 
     pub fn update_and_commit_participant<'info>(
@@ -155,7 +176,9 @@ pub mod tdf_program {
         instructions::update_and_commit_participant(ctx, league, user)
     }
 
-    pub fn update_leaderboard_with_participant(ctx: Context<UpdateLeaderboardWithParticipant>) -> Result<()> {
+    pub fn update_leaderboard_with_participant(
+        ctx: Context<UpdateLeaderboardWithParticipant>,
+    ) -> Result<()> {
         instructions::update_leaderboard_with_participant(ctx)
     }
 }

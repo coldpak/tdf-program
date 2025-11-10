@@ -34,4 +34,8 @@ pub enum ErrorCode {
     InvalidUpdateParticipantRemainingAccounts,
     #[msg("Position mismatch")]
     PositionMismatch,
+    #[msg("Position not opened")]
+    PositionNotOpened,
+    #[msg("Position already closed")]
+    PositionAlreadyClosed,
 }

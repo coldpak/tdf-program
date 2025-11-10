@@ -234,6 +234,18 @@ pub fn update_participant<'info>(
     update_participant_logic(&mut ctx.accounts.participant, ctx.remaining_accounts)
 }
 
+#[allow(unused_variables)]
+pub fn commit_participant(ctx: Context<UpdateParticipant>, league: Pubkey, user: Pubkey) -> Result<()> {
+    commit_accounts(
+        &ctx.accounts.payer,
+        vec![&ctx.accounts.participant.to_account_info()],
+        &ctx.accounts.magic_context,
+        &ctx.accounts.magic_program,
+    )?;
+
+    Ok(())
+}
+
 /// Updates participant and commits accounts to the main chain.
 /// Use this when you need to persist the participant state changes.
 #[allow(unused_variables)]

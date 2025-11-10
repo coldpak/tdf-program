@@ -149,7 +149,6 @@ pub struct DelegateUnopenedPosition<'info> {
 
 /// Open Position (on ER)
 /// - user open position on ER w/ price feed on ER (price feed is updated in realtime)
-#[commit]
 #[derive(Accounts)]
 #[instruction(position_seq: u64)]
 pub struct OpenPosition<'info> {
