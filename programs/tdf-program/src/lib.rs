@@ -121,15 +121,15 @@ pub mod tdf_program {
         )
     }
 
-    pub fn create_position_permission(
-        ctx: Context<CreatePositionPermission>,
-        league: Pubkey,
-        user: Pubkey,
-        position_seq: u64,
-        group_id: Pubkey,
-    ) -> Result<()> {
-        instructions::create_position_permission(ctx, league, user, position_seq, group_id)
-    }
+    // pub fn create_position_permission(
+    //     ctx: Context<CreatePositionPermission>,
+    //     league: Pubkey,
+    //     user: Pubkey,
+    //     position_seq: u64,
+    //     group_id: Pubkey,
+    // ) -> Result<()> {
+    //     instructions::create_position_permission(ctx, league, user, position_seq, group_id)
+    // }
 
     pub fn delegate_unopened_position(
         ctx: Context<DelegateUnopenedPosition>,
@@ -190,5 +190,23 @@ pub mod tdf_program {
         ctx: Context<UpdateLeaderboardWithParticipant>,
     ) -> Result<()> {
         instructions::update_leaderboard_with_participant(ctx)
+    }
+
+    // Private instructions
+    pub fn create_private_resource_example(ctx: Context<CreatePrivateResourceExample>) -> Result<()> {
+        instructions::create_private_resource_example(ctx)
+    }
+
+    pub fn delegate_private_resource_example(ctx: Context<DelegatePrivateResourceExample>, participant: Pubkey) -> Result<()> {
+        instructions::delegate_private_resource_example(ctx, participant)
+    }
+
+    pub fn update_private_resource_example(ctx: Context<UpdatePrivateResourceExample>, value: String) -> Result<()> {
+        instructions::update_private_resource_example(ctx, value)
+    }
+    
+    // Only admin can create permission for an example
+    pub fn create_example_permission(ctx: Context<CreateExamplePermission>, user: Pubkey) -> Result<()> {
+        instructions::create_example_permission(ctx, user)
     }
 }

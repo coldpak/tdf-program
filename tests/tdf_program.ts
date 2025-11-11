@@ -1051,6 +1051,11 @@ describe("tdf-program", async () => {
       console.log("Position Account: ", positionAccount);
     });
   });
+
+  describe("Private Resource Example", () => {
+    
+
+  });
 });
 
 // async function printCounter(program: Program<TdfProgram>, counter_pda: web3.PublicKey, leaderboard_pda: web3.PublicKey, routerConnection: web3.Connection, signature: string, message: string) {

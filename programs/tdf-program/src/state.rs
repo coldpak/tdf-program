@@ -180,3 +180,13 @@ pub struct Position {
 pub const POSITION_SEED: &[u8] = b"position";
 pub const POSITION_SPACE: usize =
     8 + (32 + 32 + 32 + 1 + 32 + 8) + (1 + 8 + 8 + 1) + 8 * 5 + 8 * 4 + 1;
+
+#[account]
+pub struct PrivateResourceExample {
+    pub value: String,
+
+    pub bump: u8,
+}
+
+pub const PRIVATE_RESOURCE_EXAMPLE_SEED: &[u8] = b"private_resource_example";
+pub const PRIVATE_RESOURCE_EXAMPLE_SPACE: usize = 8 + (4 + 2000) + 1;

@@ -227,6 +227,7 @@ pub struct OpenPosition<'info> {
     pub price_feed: AccountInfo<'info>,
 }
 
+/// This is not used because private ER doesn't support realtime price feed
 #[derive(Accounts)]
 #[instruction(league: Pubkey, user: Pubkey, position_seq: u64)]
 pub struct CreatePositionPermission<'info> {
