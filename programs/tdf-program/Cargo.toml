@@ -22,3 +22,4 @@ anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
 anchor-spl = "0.31.1"
 ephemeral-rollups-sdk = { version = "0.3.5", features = ["anchor"] }
 pyth-solana-receiver-sdk = "0.6.0"
+magicblock-permission-client = { path = "../../rust" }

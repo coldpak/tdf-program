@@ -1,11 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, web3 } from "@coral-xyz/anchor";
 import { TdfProgram } from "../target/types/tdf_program";
-import {
-  getDelegationStatus,
-  getClosestValidator,
-  sendMagicTransaction,
-} from "@magicblock-labs/ephemeral-rollups-sdk";
+
 import { sendAndConfirmTransaction, Transaction } from "@solana/web3.js";
 import {
   createMint,
@@ -16,11 +12,14 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import { getAuthToken } from "./tee-getAuthToken";
 
 const RPC_URL = "https://api.devnet.solana.com";
 const WS_URL = "wss://api.devnet.solana.com";
 const MAGICBLOCK_RPC_URL = "https://devnet.magicblock.app";
 const MAGICBLOCK_WS_URL = "wss://devnet.magicblock.app";
+const TEE_RPC_URL = "https://tee.magicblock.app/";
+const TEE_WS_URL = "wss://tee.magicblock.app/";
 
 const SEED_GLOBAL_CONFIG = "global_config";
 const PYTH_LAZER_ID = 6; // SOLUSD
@@ -44,7 +43,12 @@ const VIRTUAL_ON_DEPOSIT = 10000000000; // $10,000 paper dollars
 
 const LEAGUE_ID = "1234567890";
 
-describe("tdf-program", () => {
+describe("tdf-program", async () => {
+  const { getDelegationStatus, getClosestValidator, sendMagicTransaction } =
+    await require("magic-router-sdk");
+  const { groupPdaFromId, PERMISSION_PROGRAM_ID, permissionPdaFromAccount } =
+    await require("@magicblock-labs/ephemeral-rollups-sdk/privacy");
+
   anchor.setProvider(anchor.AnchorProvider.env());
   const program = anchor.workspace.tdfProgram as Program<TdfProgram>;
 
@@ -63,6 +67,10 @@ describe("tdf-program", () => {
         process.env.ROUTER_WS_ENDPOINT || "wss://devnet-router.magicblock.app",
     }
   );
+
+  const teeConnection = new web3.Connection(TEE_RPC_URL, {
+    wsEndpoint: TEE_WS_URL,
+  });
 
   const [global_config_pda] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from(SEED_GLOBAL_CONFIG)],
@@ -120,6 +128,19 @@ describe("tdf-program", () => {
     program.programId
   );
 
+  const privatePositionSeq = 2;
+  const seqBytesPrivate = Buffer.allocUnsafe(8);
+  seqBytesPrivate.writeBigUInt64LE(BigInt(privatePositionSeq.toString()), 0);
+  const [privatePositionPda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("position"),
+      leaguePda.toBuffer(),
+      anchor.Wallet.local().publicKey.toBuffer(),
+      seqBytesPrivate,
+    ],
+    program.programId
+  );
+
   // Listup known pdas
   console.log("Global Config PDA: ", global_config_pda.toBase58());
   console.log("Price Feed PDA: ", price_feed_pda.toBase58());
@@ -130,6 +151,10 @@ describe("tdf-program", () => {
   console.log("Reward Vault PDA: ", rewardVaultPda.toBase58());
   console.log("Participant PDA: ", participantPda.toBase58());
   console.log("Position PDA: ", positionPda.toBase58());
+
+  // Permission TEE AuthToken
+  let authTokenAdmin: string = "";
+  let providerTeeAdmin: anchor.AnchorProvider;
 
   it("Initialize GlobalConfig with 10% fee, only if it doesn't exist", async () => {
     // Check if GlobalConfig exists
@@ -427,114 +452,197 @@ describe("tdf-program", () => {
     }
   });
 
-  it("Init Unopened Position and Delegate", async () => {
-    // Check if position exists
-    const positionAccount = await program.account.position.fetchNullable(
-      positionPda
-    );
-    if (positionAccount) {
-      console.log(
-        "ℹ️ Position already exists, skipping init unopened position"
-      );
-    } else {
-      console.log("Init Unopened Position...");
-      const tx = await program.methods
-        .initUnopenedPosition(
-          leaguePda,
-          new anchor.BN(currentPositionSeq),
-          marketPda,
-          -PYTH_EXPONENT
-        )
-        .accounts({
-          // @ts-ignore
-          position: positionPda,
-          priceFeed: price_feed_pda,
-          user: anchor.Wallet.local().publicKey,
-          systemProgram: anchor.web3.SystemProgram.programId,
-        })
-        .transaction();
+  // describe("Open Public Position Scenario", () => {
+  //   it("Init Unopened Position and Delegate", async () => {
+  //     // Check if position exists
+  //     const positionAccount = await program.account.position.fetchNullable(
+  //       positionPda
+  //     );
+  //     if (positionAccount) {
+  //       console.log(
+  //         "ℹ️ Position already exists, skipping init unopened position"
+  //       );
+  //     } else {
+  //       console.log("Init Unopened Position...");
+  //       const tx = await program.methods
+  //         .initUnopenedPosition(
+  //           leaguePda,
+  //           new anchor.BN(currentPositionSeq),
+  //           marketPda,
+  //           SOL_DECIMALS
+  //         )
+  //         .accounts({
+  //           // @ts-ignore
+  //           position: positionPda,
+  //           priceFeed: price_feed_pda,
+  //           user: anchor.Wallet.local().publicKey,
+  //           systemProgram: anchor.web3.SystemProgram.programId,
+  //         })
+  //         .transaction();
 
-      // Send transaction to Base Layer
-      const signature = await sendAndConfirmTransaction(connection, tx, [
-        anchor.Wallet.local().payer,
-      ]);
+  //       // Send transaction to Base Layer
+  //       const signature = await sendAndConfirmTransaction(connection, tx, [
+  //         anchor.Wallet.local().payer,
+  //       ]);
 
-      console.log(
-        "✅ Init Unopened Position and Delegated! Signature:",
-        signature
-      );
-      await sleepWithAnimation(5);
-    }
+  //       console.log(
+  //         "✅ Init Unopened Position and Delegated! Signature:",
+  //         signature
+  //       );
+  //       await sleepWithAnimation(5);
+  //     }
 
-    const isPositionDelegated = await getDelegationStatus(
-      routerConnection,
-      positionPda
-    );
-    if (isPositionDelegated.isDelegated) {
-      console.log(
-        "ℹ️ Position already delegated, skipping delegate unopened position"
-      );
-    } else {
-      console.log("Delegating Unopened Position...");
+  //     const isPositionDelegated = await getDelegationStatus(
+  //       routerConnection,
+  //       positionPda
+  //     );
+  //     if (isPositionDelegated.isDelegated) {
+  //       console.log(
+  //         "ℹ️ Position already delegated, skipping delegate unopened position"
+  //       );
+  //     } else {
+  //       console.log("Delegating Unopened Position...");
 
-      const delegateTx = await program.methods
-        .delegateUnopenedPosition(
-          participantPda,
-          new anchor.BN(currentPositionSeq)
-        )
-        .accounts({
-          user: anchor.Wallet.local().publicKey,
-          league: leaguePda,
-          position: positionPda,
-        })
-        .transaction();
+  //       const delegateTx = await program.methods
+  //         .delegateUnopenedPosition(
+  //           participantPda,
+  //           new anchor.BN(currentPositionSeq)
+  //         )
+  //         .accounts({
+  //           user: anchor.Wallet.local().publicKey,
+  //           league: leaguePda,
+  //           position: positionPda,
+  //         })
+  //         .transaction();
 
-      const delegateSignature = await sendAndConfirmTransaction(
-        connection,
-        delegateTx,
-        [anchor.Wallet.local().payer]
-      );
+  //       const delegateSignature = await sendAndConfirmTransaction(
+  //         connection,
+  //         delegateTx,
+  //         [anchor.Wallet.local().payer]
+  //       );
 
-      console.log(
-        "✅ Delegated Unopened Position! Signature:",
-        delegateSignature
-      );
+  //       console.log(
+  //         "✅ Delegated Unopened Position! Signature:",
+  //         delegateSignature
+  //       );
 
-      await sleepWithAnimation(5);
-    }
-  });
+  //       await sleepWithAnimation(5);
+  //     }
+  //   });
 
-  // it("Open Position", async () => {
-  //   const positionAccount = await mbConnection.getAccountInfo(positionPda);
+  //   it("Open Position", async () => {
+  //     const positionAccount = await mbConnection.getAccountInfo(positionPda);
 
-  //   // Check if position's openedAt is 0
-  //   const positionOffset = 187;
+  //     // Check if position's openedAt is 0
+  //     const positionOffset = 187;
 
-  //   const dataView = new DataView(
-  //     positionAccount.data.buffer,
-  //     positionAccount.data.byteOffset,
-  //     positionAccount.data.length
-  //   );
+  //     const dataView = new DataView(
+  //       positionAccount.data.buffer,
+  //       positionAccount.data.byteOffset,
+  //       positionAccount.data.length
+  //     );
 
-  //   const openedAt = dataView.getBigInt64(positionOffset, true);
+  //     const openedAt = dataView.getBigInt64(positionOffset, true);
 
-  //   if (openedAt > 0) {
-  //     console.log("ℹ️ Position already opened, skipping open position");
-  //   } else {
+  //     if (openedAt > 0) {
+  //       console.log("ℹ️ Position already opened, skipping open position");
+  //     } else {
+  //       const tx = await program.methods
+  //         .openPosition(
+  //           new anchor.BN(currentPositionSeq),
+  //           { long: {} },
+  //           new anchor.BN(1000000), // 1 SOL
+  //           1
+  //         )
+  //         .accounts({
+  //           user: anchor.Wallet.local().publicKey,
+  //           // @ts-ignore
+  //           position: positionPda,
+  //           priceFeed: price_feed_pda,
+  //           league: leaguePda,
+  //           market: marketPda,
+  //           participant: participantPda,
+  //         })
+  //         .transaction();
+
+  //       const signature = await sendMagicTransaction(routerConnection, tx, [
+  //         anchor.Wallet.local().payer,
+  //       ]);
+
+  //       console.log("✅ Opened Position! Signature:", signature);
+  //     }
+  //   });
+
+  //   it("Update Participant", async () => {
   //     const tx = await program.methods
-  //       .openPosition(
-  //         new anchor.BN(currentPositionSeq),
-  //         { long: {} },
-  //         new anchor.BN(1000000), // 1 SOL
-  //         1
-  //       )
+  //       .updateParticipant(leaguePda, anchor.Wallet.local().publicKey)
   //       .accounts({
-  //         user: anchor.Wallet.local().publicKey,
   //         // @ts-ignore
-  //         position: positionPda,
-  //         priceFeed: price_feed_pda,
+  //         participant: participantPda,
+  //         leaderboard: leaderboardPda,
+  //         payer: anchor.Wallet.local().publicKey,
+  //         programId: program.programId,
+  //       })
+  //       .remainingAccounts([
+  //         {
+  //           pubkey: positionPda,
+  //           isWritable: true,
+  //           isSigner: false,
+  //         },
+  //         {
+  //           pubkey: price_feed_pda,
+  //           isWritable: false,
+  //           isSigner: false,
+  //         },
+  //       ])
+  //       .transaction();
+
+  //     const signature = await sendMagicTransaction(routerConnection, tx, [
+  //       anchor.Wallet.local().payer,
+  //     ]);
+
+  //     console.log("✅ Updated Participant! Signature:", signature);
+  //   });
+
+  //   it("Update and Commit Participant", async () => {
+  //     const tx = await program.methods
+  //       .updateAndCommitParticipant(leaguePda, anchor.Wallet.local().publicKey)
+  //       .accounts({
+  //         // @ts-ignore
+  //         participant: participantPda,
+  //         leaderboard: leaderboardPda,
+  //         payer: anchor.Wallet.local().publicKey,
+  //         programId: program.programId,
+  //       })
+  //       .remainingAccounts([
+  //         {
+  //           pubkey: positionPda,
+  //           isWritable: true,
+  //           isSigner: false,
+  //         },
+  //         {
+  //           pubkey: price_feed_pda,
+  //           isWritable: false,
+  //           isSigner: false,
+  //         },
+  //       ])
+  //       .transaction();
+
+  //     const signature = await sendMagicTransaction(routerConnection, tx, [
+  //       anchor.Wallet.local().payer,
+  //     ]);
+
+  //     console.log("✅ Updated and Committed Participant! Signature:", signature);
+  //     await sleepWithAnimation(5);
+  //   });
+
+  //   it("Update Leaderboard", async () => {
+  //     const tx = await program.methods
+  //       .updateLeaderboardWithParticipant()
+  //       .accounts({
+  //         // @ts-ignore
+  //         leaderboard: leaderboardPda,
   //         league: leaguePda,
-  //         market: marketPda,
   //         participant: participantPda,
   //       })
   //       .transaction();
@@ -543,178 +651,102 @@ describe("tdf-program", () => {
   //       anchor.Wallet.local().payer,
   //     ]);
 
-  //     console.log("✅ Opened Position! Signature:", signature);
-  //   }
+  //     console.log("✅ Updated Leaderboard! Signature:", signature);
+  //   });
+
+  //   it("Close Position = Commit and Undelegate Position, Commit Participant", async () => {
+  //     const tx = await program.methods
+  //       .closePosition(new anchor.BN(currentPositionSeq))
+  //       .accounts({
+  //         user: anchor.Wallet.local().publicKey,
+  //         // @ts-ignore
+  //         position: positionPda,
+  //         participant: participantPda,
+  //         league: leaguePda,
+  //         market: marketPda,
+  //         priceFeed: price_feed_pda,
+  //       })
+  //       .transaction();
+
+  //     const signature = await sendMagicTransaction(routerConnection, tx, [
+  //       anchor.Wallet.local().payer,
+  //     ]);
+
+  //     console.log("✅ Closed Position! Signature:", signature);
+  //     await sleepWithAnimation(5);
+  //   });
+
+  //   it("Commit Position and Commit Participant", async () => {
+  //     const tx = await program.methods
+  //       .commitPosition(
+  //         leaguePda,
+  //         anchor.Wallet.local().publicKey,
+  //         new anchor.BN(currentPositionSeq)
+  //       )
+  //       .accounts({
+  //         payer: anchor.Wallet.local().publicKey,
+  //         // @ts-ignore
+  //         position: positionPda,
+  //       })
+  //       .transaction();
+
+  //     const signature = await sendMagicTransaction(routerConnection, tx, [
+  //       anchor.Wallet.local().payer,
+  //     ]);
+
+  //     console.log("✅ Committed Position! Signature:", signature);
+
+  //     const commitParticipantTx = await program.methods
+  //       .commitParticipant(leaguePda, anchor.Wallet.local().publicKey)
+  //       .accounts({
+  //         payer: anchor.Wallet.local().publicKey,
+  //         // @ts-ignore
+  //         participant: participantPda,
+  //         leaderboard: leaderboardPda,
+  //         programId: program.programId,
+  //       })
+  //       .transaction();
+
+  //     const commitParticipantSignature = await sendMagicTransaction(
+  //       routerConnection,
+  //       commitParticipantTx,
+  //       [anchor.Wallet.local().payer]
+  //     );
+
+  //     console.log(
+  //       "✅ Committed Participant! Signature:",
+  //       commitParticipantSignature
+  //     );
+
+  //     await sleepWithAnimation(5);
+  //   });
+
+  //   it("Check Participant, Position, Leaderboard", async () => {
+  //     const positionAtMB = await mbConnection.getAccountInfo(positionPda);
+  //     const positionAtMBData = new DataView(
+  //       positionAtMB.data.buffer,
+  //       positionAtMB.data.byteOffset,
+  //       positionAtMB.data.length
+  //     );
+  //     const positionAtMBClosedAt = positionAtMBData.getBigInt64(195, true);
+  //     console.log(
+  //       "Position Closed At (MB): ",
+  //       new Date(Number(positionAtMBClosedAt) * 1000).toISOString()
+  //     );
+
+  //     const participantAccount = await program.account.participant.fetch(
+  //       participantPda
+  //     );
+  //     const positionAccount = await program.account.position.fetch(positionPda);
+  //     const leaderboardAccount = await program.account.leaderboard.fetch(
+  //       leaderboardPda
+  //     );
+
+  //     logParticipant(participantAccount);
+  //     logPosition(positionAccount);
+  //     logLeaderboard(leaderboardAccount);
+  //   });
   // });
-
-  // it("Update Participant", async () => {
-  //   const tx = await program.methods
-  //     .updateParticipant(leaguePda, anchor.Wallet.local().publicKey)
-  //     .accounts({
-  //       // @ts-ignore
-  //       participant: participantPda,
-  //       leaderboard: leaderboardPda,
-  //       payer: anchor.Wallet.local().publicKey,
-  //       programId: program.programId,
-  //     })
-  //     .remainingAccounts([
-  //       {
-  //         pubkey: positionPda,
-  //         isWritable: true,
-  //         isSigner: false,
-  //       },
-  //       {
-  //         pubkey: price_feed_pda,
-  //         isWritable: false,
-  //         isSigner: false,
-  //       },
-  //     ])
-  //     .transaction();
-
-  //   const signature = await sendMagicTransaction(routerConnection, tx, [
-  //     anchor.Wallet.local().payer,
-  //   ]);
-
-  //   console.log("✅ Updated Participant! Signature:", signature);
-  // });
-
-  // it("Update and Commit Participant", async () => {
-  //   const tx = await program.methods
-  //     .updateAndCommitParticipant(leaguePda, anchor.Wallet.local().publicKey)
-  //     .accounts({
-  //       // @ts-ignore
-  //       participant: participantPda,
-  //       leaderboard: leaderboardPda,
-  //       payer: anchor.Wallet.local().publicKey,
-  //       programId: program.programId,
-  //     })
-  //     .remainingAccounts([
-  //       {
-  //         pubkey: positionPda,
-  //         isWritable: true,
-  //         isSigner: false,
-  //       },
-  //       {
-  //         pubkey: price_feed_pda,
-  //         isWritable: false,
-  //         isSigner: false,
-  //       },
-  //     ])
-  //     .transaction();
-
-  //   const signature = await sendMagicTransaction(routerConnection, tx, [
-  //     anchor.Wallet.local().payer,
-  //   ]);
-
-  //   console.log("✅ Updated and Committed Participant! Signature:", signature);
-  //   await sleepWithAnimation(5);
-  // });
-
-  // it("Update Leaderboard", async () => {
-  //   const tx = await program.methods
-  //     .updateLeaderboardWithParticipant()
-  //     .accounts({
-  //       // @ts-ignore
-  //       leaderboard: leaderboardPda,
-  //       league: leaguePda,
-  //       participant: participantPda,
-  //     })
-  //     .transaction();
-
-  //   const signature = await sendMagicTransaction(routerConnection, tx, [
-  //     anchor.Wallet.local().payer,
-  //   ]);
-
-  //   console.log("✅ Updated Leaderboard! Signature:", signature);
-  // });
-
-  // it("Close Position = Commit and Undelegate Position, Commit Participant", async () => {
-  //   const tx = await program.methods
-  //     .closePosition(new anchor.BN(currentPositionSeq))
-  //     .accounts({
-  //       user: anchor.Wallet.local().publicKey,
-  //       // @ts-ignore
-  //       position: positionPda,
-  //       participant: participantPda,
-  //       league: leaguePda,
-  //       market: marketPda,
-  //       priceFeed: price_feed_pda,
-  //     })
-  //     .transaction();
-
-  //   const signature = await sendMagicTransaction(routerConnection, tx, [
-  //     anchor.Wallet.local().payer,
-  //   ]);
-
-  //   console.log("✅ Closed Position! Signature:", signature);
-  //   await sleepWithAnimation(5);
-  // });
-
-  it("Commit Position and Commit Participant", async () => {
-    const tx = await program.methods
-      .commitPosition(
-        leaguePda,
-        anchor.Wallet.local().publicKey,
-        new anchor.BN(currentPositionSeq)
-      )
-      .accounts({
-        payer: anchor.Wallet.local().publicKey,
-        // @ts-ignore
-        position: positionPda,
-      })
-      .transaction();
-
-    const signature = await sendMagicTransaction(routerConnection, tx, [
-      anchor.Wallet.local().payer,
-    ]);
-
-    console.log("✅ Committed Position! Signature:", signature);
-
-    const commitParticipantTx = await program.methods
-      .commitParticipant(leaguePda, anchor.Wallet.local().publicKey)
-      .accounts({
-        payer: anchor.Wallet.local().publicKey,
-        // @ts-ignore
-        participant: participantPda,
-        leaderboard: leaderboardPda,
-        programId: program.programId,
-      })
-      .transaction();
-
-    const commitParticipantSignature = await sendMagicTransaction(routerConnection, commitParticipantTx, [
-      anchor.Wallet.local().payer,
-    ]);
-
-    console.log("✅ Committed Participant! Signature:", commitParticipantSignature);
-
-    await sleepWithAnimation(5);
-  });
-
-  it("Check Participant, Position, Leaderboard", async () => {
-    const positionAtMB = await mbConnection.getAccountInfo(positionPda);
-    const positionAtMBData = new DataView(
-      positionAtMB.data.buffer,
-      positionAtMB.data.byteOffset,
-      positionAtMB.data.length
-    );
-    const positionAtMBClosedAt = positionAtMBData.getBigInt64(195, true);
-    console.log(
-      "Position Closed At (MB): ",
-      new Date(Number(positionAtMBClosedAt) * 1000).toISOString()
-    );
-
-    const participantAccount = await program.account.participant.fetch(
-      participantPda
-    );
-    const positionAccount = await program.account.position.fetch(positionPda);
-    const leaderboardAccount = await program.account.leaderboard.fetch(
-      leaderboardPda
-    );
-
-    logParticipant(participantAccount);
-    logPosition(positionAccount);
-    logLeaderboard(leaderboardAccount);
-  });
 
   // it("Undelegate Participant", async () => {
   //   const delegated = await getDelegationStatus(
@@ -854,6 +886,171 @@ describe("tdf-program", () => {
   //   await sleepWithAnimation(5);
   //   await printCounter(program, pda, leaderboard_pda, routerConnection, signature, "✅ Undelegated Counter PDA!");
   // });
+
+  describe("Open Private Position Scenario", () => {
+    before(async () => {
+      console.log("Setting up Permission TEE AuthToken");
+      authTokenAdmin = await getAuthToken(
+        teeConnection.rpcEndpoint,
+        anchor.Wallet.local().payer
+      );
+      console.log("Auth Token Admin: ", authTokenAdmin);
+      providerTeeAdmin = new anchor.AnchorProvider(
+        new anchor.web3.Connection(
+          "https://tee.magicblock.app?token=" + authTokenAdmin,
+          {
+            wsEndpoint: "wss://tee.magicblock.app?token=" + authTokenAdmin,
+          }
+        ),
+        anchor.Wallet.local()
+      );
+    });
+
+    const permissionPda = permissionPdaFromAccount(privatePositionPda);
+    const groupId = anchor.web3.Keypair.generate().publicKey;
+    const groupPda = groupPdaFromId(groupId);
+
+    console.log("================================================");
+    console.log("Private Position PDA: ", privatePositionPda.toBase58());
+    console.log("Permission PDA: ", permissionPda.toBase58());
+    console.log("Group ID: ", groupId.toBase58());
+    console.log("Group PDA: ", groupPda.toBase58());
+    console.log("================================================");
+
+    // it("Init, Create Permission, Delegate Position", async () => {
+    //   const initIx = await program.methods
+    //     .initUnopenedPosition(
+    //       leaguePda,
+    //       new anchor.BN(privatePositionSeq),
+    //       marketPda,
+    //       SOL_DECIMALS
+    //     )
+    //     .accounts({
+    //       user: anchor.Wallet.local().publicKey,
+    //       // @ts-ignore
+    //       position: privatePositionPda,
+    //       priceFeed: price_feed_pda,
+    //       systemProgram: anchor.web3.SystemProgram.programId,
+    //     })
+    //     .instruction();
+
+    //   const createPermissionIx = await program.methods
+    //     .createPositionPermission(
+    //       leaguePda,
+    //       anchor.Wallet.local().publicKey,
+    //       new anchor.BN(privatePositionSeq),
+    //       groupId
+    //     )
+    //     .accountsPartial({
+    //       payer: anchor.Wallet.local().publicKey,
+    //       position: privatePositionPda,
+    //       permission: permissionPda,
+    //       group: groupPda,
+    //       permissionProgram: PERMISSION_PROGRAM_ID,
+    //       systemProgram: anchor.web3.SystemProgram.programId,
+    //     })
+    //     .remainingAccounts([
+    //       {
+    //         pubkey: anchor.Wallet.local().publicKey,
+    //         isWritable: false,
+    //         isSigner: true,
+    //       },
+    //     ])
+    //     .instruction();
+
+    //   const delegatePositionIx = await program.methods
+    //     .delegateUnopenedPosition(participantPda, new anchor.BN(privatePositionSeq))
+    //     .accounts({
+    //       user: anchor.Wallet.local().publicKey,
+    //       league: leaguePda,
+    //       position: privatePositionPda,
+    //     })
+    //     .instruction();
+
+    //   let tx = new anchor.web3.Transaction().add(
+    //     initIx,
+    //     createPermissionIx,
+    //     delegatePositionIx
+    //   );
+
+    //   tx.feePayer = anchor.Wallet.local().publicKey;
+    //   const txHash = await sendMagicTransaction(routerConnection, tx, [
+    //     anchor.Wallet.local().payer,
+    //   ]);
+    //   console.log("✅ Opened Private Position! Signature:", txHash);
+
+    //   await sleepWithAnimation(5);
+    // });
+
+    it("Open Private Position", async () => {
+      const openIx = await program.methods
+        .openPosition(
+          new anchor.BN(privatePositionSeq),
+          { long: {} },
+          new anchor.BN(1000000),
+          10
+        )
+        .accounts({
+          user: anchor.Wallet.local().publicKey,
+          // @ts-ignore
+          position: privatePositionPda,
+          priceFeed: price_feed_pda,
+          league: leaguePda,
+          market: marketPda,
+          participant: participantPda,
+        })
+        .instruction();
+
+      let tx = new anchor.web3.Transaction().add(openIx);
+      tx.feePayer = anchor.Wallet.local().publicKey;
+      tx.recentBlockhash = (
+        await providerTeeAdmin.connection.getLatestBlockhash()
+      ).blockhash;
+      const txHash = await sendAndConfirmTransaction(
+        providerTeeAdmin.connection,
+        tx,
+        [anchor.Wallet.local().payer]
+      );
+
+      console.log("Opened Private Position! Signature:", txHash);
+    });
+
+    it("Check Visibility of Position (Non-permissioned entity)", async () => {
+      const accountInfo = await teeConnection.getAccountInfo(privatePositionPda);
+      if (!accountInfo) {
+        console.log("Passed! Position account not found");
+        return;
+      }
+      const positionData = accountInfo.data;
+      const positionAccount = program.account.position.coder.accounts.decode(
+        "position",
+        positionData
+      );
+      console.log("Position Account: ", positionAccount);
+    });
+
+    it("Check Visibility of Position (Permissioned entity)", async () => {
+      const accountInfo = await providerTeeAdmin.connection.getAccountInfo(
+        privatePositionPda
+      );
+      // Check providerTeeAdmin details
+      console.log(
+        "Provider Tee Admin: ",
+        providerTeeAdmin.connection.rpcEndpoint
+      );
+      console.log(
+        "Provider Tee Admin Public Key: ",
+        providerTeeAdmin.publicKey.toBase58()
+      );
+      console.log("Private Position Account: ", accountInfo);
+      const positionData = accountInfo.data;
+      const positionAccount = program.account.position.coder.accounts.decode(
+        "position",
+        positionData
+      );
+      console.log("Position Account: ", positionAccount);
+    });
+  });
 });
 
 // async function printCounter(program: Program<TdfProgram>, counter_pda: web3.PublicKey, leaderboard_pda: web3.PublicKey, routerConnection: web3.Connection, signature: string, message: string) {
@@ -912,14 +1109,8 @@ function logParticipant(participant) {
     "Participant virtual balance: ",
     participant.virtualBalance.toString()
   );
-  console.log(
-    "Participant used margin: ",
-    participant.usedMargin.toString()
-  );
-  console.log(
-    "Participant total volume: ",
-    participant.totalVolume.toString()
-  );
+  console.log("Participant used margin: ", participant.usedMargin.toString());
+  console.log("Participant total volume: ", participant.totalVolume.toString());
 }
 
 function logPosition(position) {
@@ -932,51 +1123,18 @@ function logPosition(position) {
     "Position closed at: ",
     new Date(position.closedAt.toNumber() * 1000).toISOString()
   );
-  console.log(
-    "Position direction: ",
-    position.direction.toString()
-  );
-  console.log(
-    "Position entry price: ",
-    position.entryPrice.toString()
-  );
-  console.log(
-    "Position entry size: ",
-    position.entrySize.toString()
-  );
-  console.log(
-    "Position leverage: ",
-    position.leverage.toString()
-  );
-  console.log(
-    "Position size: ",
-    position.size.toString()
-  );
-  console.log(
-    "Position notional: ",
-    position.notional.toString()
-  );
-  console.log(
-    "Position closed size: ",
-    position.closedSize.toString()
-  );
-  console.log(
-    "Position closed price: ",
-    position.closedPrice.toString()
-  );
-  console.log(
-    "Position unrealized PnL: ",
-    position.unrealizedPnl.toString()
-  );
-  console.log(
-    "Position closed equity: ",
-    position.closedEquity.toString()
-  );
-  console.log(
-    "Position closed PnL: ",
-    position.closedPnl.toString()
-  );
-} 
+  console.log("Position direction: ", position.direction.toString());
+  console.log("Position entry price: ", position.entryPrice.toString());
+  console.log("Position entry size: ", position.entrySize.toString());
+  console.log("Position leverage: ", position.leverage.toString());
+  console.log("Position size: ", position.size.toString());
+  console.log("Position notional: ", position.notional.toString());
+  console.log("Position closed size: ", position.closedSize.toString());
+  console.log("Position closed price: ", position.closedPrice.toString());
+  console.log("Position unrealized PnL: ", position.unrealizedPnl.toString());
+  console.log("Position closed equity: ", position.closedEquity.toString());
+  console.log("Position closed PnL: ", position.closedPnl.toString());
+}
 
 function logLeaderboard(leaderboard) {
   console.log(

@@ -1,8 +1,12 @@
 /// CAUTION: This instruction is applied only to ER. 
 /// Base Layer's price feed is not updated in realtime.
 use anchor_lang::prelude::*;
-use ephemeral_rollups_sdk::anchor::{delegate, commit};
+use ephemeral_rollups_sdk::anchor::{delegate};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
+
+use magicblock_permission_client::instructions::{
+    CreateGroupCpiBuilder, CreatePermissionCpiBuilder
+};
 
 use crate::state::{
     Direction, League, LeagueStatus, Market, Participant, Position, PARTICIPANT_SEED, POSITION_SEED, POSITION_SPACE
@@ -18,8 +22,7 @@ pub fn init_unopened_position(
     market: Pubkey,
     market_decimals: u8,
 ) -> Result<()> {
-    // TODO: Check if participant is in the league, user is the participant etc...
-
+    // TODO: Check if participant is in the league, user is the participant, market decimal etc...
     let position = &mut ctx.accounts.position;
     position.league = league;
     position.user = ctx.accounts.user.key();
@@ -29,6 +32,46 @@ pub fn init_unopened_position(
     position.seq_num = current_position_seq;
 
     position.bump = ctx.bumps.position;
+
+    Ok(())
+}
+
+pub fn create_position_permission(
+    ctx: Context<CreatePositionPermission>, 
+    league: Pubkey, 
+    user: Pubkey, 
+    position_seq: u64,
+    group_id: Pubkey,
+) -> Result<()> {
+    let payer = &ctx.accounts.payer;
+    let position = &ctx.accounts.position;
+    let permission = &mut ctx.accounts.permission;
+    let group = &mut ctx.accounts.group;
+    let permission_program = &ctx.accounts.permission_program;
+    let system_program = &ctx.accounts.system_program;
+    let members = ctx.remaining_accounts.iter().map(|acc| acc.key()).collect::<Vec<_>>();
+
+    CreateGroupCpiBuilder::new(permission_program)
+        .group(group)
+        .id(group_id)
+        .members(members)
+        .payer(payer)
+        .system_program(system_program)
+        .invoke()?;
+
+    CreatePermissionCpiBuilder::new(permission_program)
+        .permission(permission)
+        .delegated_account(&position.to_account_info())
+        .group(group)
+        .payer(payer)
+        .system_program(system_program)
+        .invoke_signed(&[&[
+            POSITION_SEED, 
+            league.key().as_ref(), 
+            user.key().as_ref(), 
+            position_seq.to_le_bytes().as_ref(),
+            &[ctx.bumps.position],
+        ]])?;
 
     Ok(())
 }
@@ -182,4 +225,30 @@ pub struct OpenPosition<'info> {
     pub market: Account<'info, Market>,
     /// CHECK: Price feed account (Pyth PriceUpdateV2)
     pub price_feed: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(league: Pubkey, user: Pubkey, position_seq: u64)]
+pub struct CreatePositionPermission<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        seeds = [POSITION_SEED, league.key().as_ref(), user.key().as_ref(), position_seq.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub position: Account<'info, Position>,
+
+    /// CHECK: Checked by the permission program
+    #[account(mut)]
+    pub permission: UncheckedAccount<'info>,
+    /// CHECK: Checked by the permission program
+    #[account(mut)]
+    pub group: UncheckedAccount<'info>,
+    /// CHECK: Checked by the permission program
+    #[account(mut)]
+    pub permission_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+
+    // Remaining accounts include the members of the group
 }

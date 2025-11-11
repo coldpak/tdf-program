@@ -121,6 +121,16 @@ pub mod tdf_program {
         )
     }
 
+    pub fn create_position_permission(
+        ctx: Context<CreatePositionPermission>,
+        league: Pubkey,
+        user: Pubkey,
+        position_seq: u64,
+        group_id: Pubkey,
+    ) -> Result<()> {
+        instructions::create_position_permission(ctx, league, user, position_seq, group_id)
+    }
+
     pub fn delegate_unopened_position(
         ctx: Context<DelegateUnopenedPosition>,
         participant: Pubkey,
