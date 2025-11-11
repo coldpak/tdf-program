@@ -1,6 +1,6 @@
-# 🎯 Trading Derivatives Framework (TDF) Program
+# 🎯 Trade Dot Fun(TDF) Program
 
-A comprehensive Solana program built with Anchor that implements a trading derivatives framework with league competitions, position management, and privacy features using MagicBlock's Ephemeral Rollups SDK and x402 protocol.
+A comprehensive Solana program built with Anchor that implements a trade dot fun with league competitions, position management, and privacy features using MagicBlock's Ephemeral Rollups SDK and x402 protocol.
 
 ## 📋 Overview
 
