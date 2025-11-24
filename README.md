@@ -137,9 +137,9 @@ The program integrates with MagicBlock's Ephemeral Rollups for privacy:
 
 **Private Position & Pay-to-Reveal Position**
 
-The current implementation of private positions and pay-to-reveal position functionality is limited by the constraints of Ephemeral Rollups:
+The current implementation of private positions and pay-to-reveal position functionality is limited by the constraints of Private Ephemeral Rollups:
 
-- **Realtime Price Feed Access**: Ephemeral Rollups cannot directly access realtime price feeds from oracles like Pyth Network. This limitation prevents the program from calculating real-time PnL and executing position management logic within the private rollup environment.
+- **Realtime Price Feed Access**: Private Ephemeral Rollups cannot directly access realtime price feeds from oracles like Pyth Network. This limitation prevents the program from calculating real-time PnL and executing position management logic within the private rollup environment.
 - **Alternative Approach Needed**: To enable fully on-chain private position management with realtime price feeds, a different architecture is required that allows seamless integration between private computation and public oracle data.
 
 ## 🧪 Testing
